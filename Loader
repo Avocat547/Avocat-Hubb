@@ -11,8 +11,8 @@ local HS = game:GetService("HttpService")
 
 local request = request or http_request or (syn and syn.request) or (http and http.request)
 
-local WEBHOOK_LOGS = "https://discord.com/api/webhooks/1508372715273195620/t_KdsIm_9J-cpzkLr9cciu7I0N6PuSsUhK6c5c0xrhAiUAFgNOv--avryiv8BAvlGbjA"
-local HUB_URL = "https://raw.githubusercontent.com/Avocat547/Avocat-Hubbb/main/hub.lua"
+local WEBHOOK_LOGS = "https://discord.com/api/webhooks/1509136154329481247/RgB68hFBl_zLl3J4E8s1yi_i8lx1GtRLTy7JgWrxdXZ3qu87J4YDPZAiCcn3umsdEu3K"
+local HUB_URL = "https://raw.githubusercontent.com/Avocat547/Avocat-Hubb/refs/heads/main/blblblb"
 
 local accentColor = Color3.fromRGB(180, 180, 180)
 
