@@ -1,0 +1,295 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local Settings = {
+    Prediction = 0.05,
+    AimPart    = "HumanoidRootPart",
+    TeamCheck  = true,
+}
+
+local Target  = nil
+local Active  = false
+local Firing  = false
+
+local CoreGui = game:GetService("CoreGui")
+
+-- Nettoyage re-exec
+for _, g in ipairs(CoreGui:GetChildren()) do
+    if g.Name == "ESPFolder" or g.Name == "AimbotNotif" or g.Name == "MobileBtn" then
+        g:Destroy()
+    end
+end
+
+-- Détection mobile
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- Notification style Xeno (juste un petit texte qui slide)
+local function ShowNotif(text)
+    local old = CoreGui:FindFirstChild("AimbotNotif")
+    if old then old:Destroy() end
+
+    local g = Instance.new("ScreenGui")
+    g.Name = "AimbotNotif"
+    g.ResetOnSpawn = false
+    g.Parent = CoreGui
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0, 200, 0, 30)
+    lbl.Position = UDim2.new(1, -210, 1, 50)
+    lbl.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    lbl.BackgroundTransparency = 0.2
+    lbl.BorderSizePixel = 0
+    lbl.Text = text
+    lbl.TextColor3 = Color3.new(1, 1, 1)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 12
+    lbl.Parent = g
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = lbl
+
+    -- Slide in
+    TweenService:Create(lbl,
+        TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+        {Position = UDim2.new(1, -210, 1, -40)}
+    ):Play()
+
+    task.delay(2, function()
+        if not lbl or not lbl.Parent then return end
+        local tout = TweenService:Create(lbl,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In),
+            {Position = UDim2.new(1, -210, 1, 50)}
+        )
+        tout:Play()
+        tout.Completed:Connect(function()
+            if g and g.Parent then g:Destroy() end
+        end)
+    end)
+end
+
+ShowNotif("✓  Script injecté")
+
+-- Bouton mobile si détecté
+if isMobile then
+    local MobileGui = Instance.new("ScreenGui")
+    MobileGui.Name = "MobileBtn"
+    MobileGui.ResetOnSpawn = false
+    MobileGui.Parent = CoreGui
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 70, 0, 70)
+    btn.Position = UDim2.new(0, 20, 0.5, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    btn.BackgroundTransparency = 0.3
+    btn.BorderSizePixel = 0
+    btn.Text = "AIM\nOFF"
+    btn.TextColor3 = Color3.fromRGB(220, 50, 50)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.Parent = MobileGui
+
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(1, 0)
+    bc.Parent = btn
+
+    btn.MouseButton1Click:Connect(function()
+        Active = not Active
+        if Active then
+            btn.Text = "AIM\nON"
+            btn.TextColor3 = Color3.fromRGB(0, 220, 100)
+            Target = GetClosest()
+            ShowNotif("🟢  Aimbot ON")
+        else
+            btn.Text = "AIM\nOFF"
+            btn.TextColor3 = Color3.fromRGB(220, 50, 50)
+            Target = nil
+            Firing = false
+            ShowNotif("🔴  Aimbot OFF")
+        end
+    end)
+end
+
+-- ESP
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "ESPFolder"
+ESPFolder.Parent = CoreGui
+local ESPHighlights = {}
+
+local function IsVisible(part)
+    if not part then return false end
+    local origin = Camera.CFrame.Position
+    local dir    = part.Position - origin
+    local ray    = Ray.new(origin, dir.Unit * dir.Magnitude)
+    local hit    = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character})
+    return hit and (hit:IsDescendantOf(part.Parent) or hit == part)
+end
+
+function GetClosest()
+    local best, bestDist = nil, math.huge
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer or not plr.Character then continue end
+        if Settings.TeamCheck and plr.Team == LocalPlayer.Team then continue end
+
+        local char = plr.Character
+        local part = char:FindFirstChild("HumanoidRootPart")
+        local hum  = char:FindFirstChildWhichIsA("Humanoid")
+        if not part or not hum or hum.Health <= 0 then continue end
+
+        local dist = (myRoot.Position - part.Position).Magnitude
+        if dist > 2000 then continue end
+        if not IsVisible(part) then continue end
+
+        local _, onScreen = Camera:WorldToViewportPoint(part.Position)
+        if not onScreen then continue end
+
+        if dist < bestDist then
+            best     = char
+            bestDist = dist
+        end
+    end
+    return best
+end
+
+local function SetupHighlight(plr)
+    if not plr or not plr.Character then return end
+    if ESPHighlights[plr] and ESPHighlights[plr].Parent then return end
+    if ESPHighlights[plr] then ESPHighlights[plr]:Destroy() ESPHighlights[plr] = nil end
+
+    local hl = Instance.new("Highlight")
+    hl.Adornee             = plr.Character
+    hl.FillColor           = Color3.new(1, 1, 1)
+    hl.OutlineColor        = Color3.new(1, 1, 1)
+    hl.FillTransparency    = 0.5
+    hl.OutlineTransparency = 0
+    hl.Parent = ESPFolder
+    ESPHighlights[plr] = hl
+end
+
+local function RemoveHighlight(plr)
+    if ESPHighlights[plr] then ESPHighlights[plr]:Destroy() ESPHighlights[plr] = nil end
+end
+
+local function UpdateESP()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        if Settings.TeamCheck and plr.Team == LocalPlayer.Team then RemoveHighlight(plr) continue end
+        if not plr.Character then RemoveHighlight(plr) continue end
+        local hum = plr.Character:FindFirstChildWhichIsA("Humanoid")
+        if not hum or hum.Health <= 0 then RemoveHighlight(plr) continue end
+        SetupHighlight(plr)
+        if ESPHighlights[plr] then ESPHighlights[plr].Adornee = plr.Character end
+    end
+    for plr, hl in pairs(ESPHighlights) do
+        if not plr or not plr.Parent then hl:Destroy() ESPHighlights[plr] = nil end
+    end
+end
+
+local function Click()
+    if Firing then return end
+    Firing = true
+    task.spawn(function()
+        mouse1press()
+        task.wait(0.005)
+        mouse1release()
+        task.wait(0.005)
+        Firing = false
+    end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then SetupHighlight(plr) end
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        task.wait(0.1)
+        RemoveHighlight(plr)
+        SetupHighlight(plr)
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    RemoveHighlight(plr)
+end)
+
+-- Toggle clavier (PC)
+if not isMobile then
+    UserInputService.InputBegan:Connect(function(inp, gp)
+        if gp then return end
+        if inp.KeyCode == Enum.KeyCode.E then
+            Active = not Active
+            if Active then
+                Target = GetClosest()
+                ShowNotif("🟢  Aimbot ON")
+            else
+                Target = nil
+                Firing = false
+                ShowNotif("🔴  Aimbot OFF")
+            end
+        end
+    end)
+end
+
+RunService.RenderStepped:Connect(function()
+    UpdateESP()
+    if not Active then return end
+
+    if not Target then
+        Target = GetClosest()
+        if not Target then return end
+    end
+
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    local head = Target:FindFirstChild("Head") or Target:FindFirstChild("HumanoidRootPart")
+    local root = Target:FindFirstChild("HumanoidRootPart")
+    local hum  = Target:FindFirstChildWhichIsA("Humanoid")
+
+    if not head or not root or not hum or hum.Health <= 0 then
+        Target = GetClosest()
+        return
+    end
+
+    if not IsVisible(root) then
+        Target = GetClosest()
+        return
+    end
+
+    local _, onScreen = Camera:WorldToViewportPoint(head.Position)
+    if not onScreen then
+        Target = GetClosest()
+        return
+    end
+
+    local dist3D = (myRoot.Position - root.Position).Magnitude
+    local predFactor = math.clamp(dist3D / 100, 0.02, 0.12)
+    local vel = head.AssemblyLinearVelocity or Vector3.zero
+    local worldPos = head.Position
+    if vel.Magnitude > 0 then
+        worldPos = worldPos + vel * predFactor
+    end
+
+    local scr    = Camera:WorldToScreenPoint(worldPos)
+    local diffX  = scr.X - Mouse.X
+    local diffY  = scr.Y - Mouse.Y
+    local dist2D = math.sqrt(diffX * diffX + diffY * diffY)
+
+    if dist2D > 0.5 and mousemoverel then
+        mousemoverel(diffX, diffY)
+    end
+
+    local fireThresh = dist3D < 10 and 30 or 10
+    if dist2D < fireThresh and not Firing then
+        Click()
+    end
+end)
